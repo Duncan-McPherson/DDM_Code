@@ -1,0 +1,35 @@
+classdef GPR
+    properties
+        x_data
+        y_data
+        covar
+        inv_covar_input
+        noise 
+        memory
+    end
+    methods
+        function obj = GPR(XData, YDATA, kernel, Noise)
+            obj.x_data = XData;
+            obj.y_data = YDATA;
+            obj.covar = kernel;
+            obj.noise = Noise;
+
+            %Calculate other matrixs
+            obj.inv_covar_input = inv(kernel.calculateKernel(XData, XData) + (Noise+3*10^-7)*eye(size(XData,1)));
+        end
+
+        function [avg, obj] = Prediction(obj, at_values)
+            k_lower_star = obj.covar.calculateKernel(obj.x_data, at_values);
+            k_lower_star2 = obj.covar.calculateKernel(at_values, at_values);
+
+            avg_at_values = k_lower_star*(obj.inv_covar_input*obj.y_data);
+            
+            covar_at_values = k_lower_star2 - dot(k_lower_star, dot(obj.inv_covar_input, k_lower_star'));
+
+            variance = diag(covar_at_values);
+            
+            obj.memory = [avg_at_values; covar_at_values; variance];
+            avg = avg_at_values;
+        end
+    end
+end

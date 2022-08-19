@@ -1,0 +1,11 @@
+classdef Kernel_Function
+    properties
+        Freq {mustBeNum}
+        Theta 
+    end
+    methods
+        function var = Set_Kernel(omega, theta1, theta2)
+            var
+        end
+    end
+end
