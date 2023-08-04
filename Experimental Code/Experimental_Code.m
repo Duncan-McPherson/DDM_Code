@@ -1,0 +1,140 @@
+clc; clf; close all;
+%% Hyper-parameters
+gam = 0.1; %Regularization Factor
+erfa = 0.1; %Error factor
+N = 50; %Max number of nodes kernel can hold
+sig1 = 1; %Kernel Parameter #1
+sig2 = 0.25; %Kernel Parameter #2
+omega = 100; %Kermenl Parameter #3 [Hz]
+Ts = 0.0001; %Sampling Time
+dB = 0.005;  %friction deadband [m/s]
+
+%% Load in Data from Experimental Tests with DSpace
+floc = "C:\Users\Duncan\OneDrive - University of Victoria\Duncan\Lab Experiments\Aug 3\";
+Test = load(floc + "Control.mat").Chrip_Test5;
+
+%Place data and scale as per experimental setup
+t = Test.X.Data;
+u = Test.Y(2).Data;
+xm = Test.Y(1).Data;
+vm = filtfilt(gradient(xm,Ts));
+Td = Test.Y(3).Data;
+
+%select Data range
+figure(1);
+plot(xm);
+[tmpX,~]=ginput(2);
+str = floor(tmpX(1));
+sto = floor(tmpX(2));
+close all;
+
+%Place data and scale as per experimental setup
+t = t(str:30:sto)';
+u = u(str:30:sto)';
+vm = vm(str:30:sto)';
+Td = Td(str:30:sto)';
+
+%Construct Useful variables
+phi = [u(1:end-1), vm(1:end-1), -1*pv(vm(1:end-1),dB), -1*nv(xm(1:end-1),dB)];
+t = t(1:end-1);
+K_con = [phi, t];
+y = vm(2:end);
+
+%% Least Squares
+ls_beta = (phi'*phi)\phi'*y;
+
+%% Least Squares - Support Vector Regression
+Ohm = K(t, t, sig1, sig2, omega) - gam*eye(length(phi));
+LH = [zeros(4), phi'; phi, Ohm];
+RH = [zeros(4,1); y];
+LS = (LH'*LH)\LH'*RH;
+kls_alpha = LS(4+1:end);
+kls_beta = LS(1:4);
+
+%% Recursive Kernel Least Squares - Force Identification
+[AltFc, AltY] = AltGoal(K_con, y, 50, kls_beta, [omega, sig1, sig2], 0.995, 0.001, 0.01);
+
+%% Figure Generation
+opts.Colors     = get(groot,'defaultAxesColorOrder');
+opts.saveFolder = "Figures\";
+opts.width      = 3;
+opts.height     = 3;
+opts.fontType   = 'Calibri';
+opts.fontSize   = 14;
+
+fig = figure(1); 
+plot(t(2:end), vm(2:end)); hold on;
+plot(t(2:end), phi*ls_beta);
+title("Velocity; No Disturb; LS")
+ylabel("Velocity [m/s]")
+xlabel("Time [sec]")
+legend("Measured Position", "Predited Position")
+fig.Units = 'inches';
+fig.Position(3) = opts.width;
+fig.Position(4) = opts.height;
+set(fig.Children, {'FontName', 'FontSize'}, {opts.fontType,opts.fontSize});
+set(gca,'LooseInset',max(get(gca,'TightInset'), 0.02))
+fig.PaperPositionMode   = 'auto';
+print([opts.saveFolder+'LS_0Hz'], '-dpng', '-r1200')
+
+fig = figure(2); 
+plot(t(2:end), vm(2:end)); hold on;
+plot(t(2:end), phi*kls_beta + Ohm*kls_alpha);
+title("Velocity; No Disturb; Batch Kernel LS")
+ylabel("Velcoity [m/s]")
+xlabel("Time [sec]")
+legend("Measured Position", "Predited Position")
+fig.Units = 'inches';
+fig.Position(3) = opts.width;
+fig.Position(4) = opts.height;
+set(fig.Children, {'FontName', 'FontSize'}, {opts.fontType,opts.fontSize});
+set(gca,'LooseInset',max(get(gca,'TightInset'), 0.02))
+fig.PaperPositionMode   = 'auto';
+print([opts.saveFolder+'KLS_0Hz'], '-dpng', '-r1200')
+
+fig = figure(3); 
+plot(t(2:end), vm(2:end)); hold on;
+plot(t(2:end), AltY);
+title("Velocity; No Disturb; Batch Kernel LS")
+ylabel("Velocity [m/s]")
+xlabel("Time [sec]")
+legend("Measured Position", "Predited Position")
+fig.Units = 'inches';
+fig.Position(3) = opts.width;
+fig.Position(4) = opts.height;
+set(fig.Children, {'FontName', 'FontSize'}, {opts.fontType,opts.fontSize});
+set(gca,'LooseInset',max(get(gca,'TightInset'), 0.02))
+fig.PaperPositionMode   = 'auto';
+print([opts.saveFolder+'RKLS_0Hz'], '-dpng', '-r1200')
+
+fig = figure(4); 
+plot(t(2:end), AltFc);
+title("Force; No Disturb; Batch Kernel LS")
+ylabel("Force Disturbance [m]")
+xlabel("Time [sec]")
+fig.Units = 'inches';
+fig.Position(3) = opts.width;
+fig.Position(4) = opts.height;
+set(fig.Children, {'FontName', 'FontSize'}, {opts.fontType,opts.fontSize});
+set(gca,'LooseInset',max(get(gca,'TightInset'), 0.02))
+fig.PaperPositionMode   = 'auto';
+print([opts.saveFolder+'Fk_0Hz'], '-dpng', '-r1200')
+
+%% Functions
+%Kernel Radial Basis Functions (Keivan Kernel)
+function KMN = K(XN, XM, sig1, sig2, omega)  
+    KMN1 = exp(-(sin(pi.*pdist2(XN(:,end),XM(:,end))./omega).^2)/(2*(sig2^2)));
+    KMN2 = exp(-(pdist2(XN(:,end),XM(:,end)).^2)/(2*(sig1^2)));
+    KMN = KMN1.*KMN2;
+end
+%Positive and Negative Functions
+function y = pv(w, Ohm)
+    w(abs(w) <= Ohm) = 0;
+    y = sign(w);
+    y = 1/2*(y.*(ones(size(w,1),1)+y));
+end
+function y = nv(w, Ohm)
+    w(abs(w) <= Ohm) = 0;
+    w = sign(w);
+    y = -1/2*(w.*(ones(size(w,1),1)-w));
+end
